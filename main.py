@@ -1,3 +1,4 @@
+import asyncio
 import math
 import os
 import random
@@ -38,7 +39,7 @@ def load_and_prep_assets():
     if os.path.exists(duck_path):
         sheet = pygame.image.load(duck_path).convert()
 
-        # Dynamic Chroma Keying (reads gray background color from top-left pixel)
+        # Dynamic Chroma Keying (reads background color from top-left pixel)
         bg_key_color = sheet.get_at((0, 0))
         sheet.set_colorkey(bg_key_color)
 
@@ -59,7 +60,7 @@ def load_and_prep_assets():
 ASSETS = load_and_prep_assets()
 
 # --- GAME ECONOMY & STATE ---
-player_pos = [670, 480]  # Stationed on the right bank dirt track
+player_pos = [670, 480]
 money = 100
 RELOAD_COST = 10
 ammo_max = 6
@@ -75,7 +76,6 @@ SPAWN_INTERVAL = 65
 
 
 def spawn_duck():
-    # River bounds (X coordinates 230 to 570)
     x_pos = random.randint(230, 570)
     duck_type = random.choice(["mallard", "yellow"])
 
@@ -120,128 +120,140 @@ def fire_shotgun(target_pos):
 
 
 font = pygame.font.SysFont("Consolas", 22, bold=True)
-running = True
 
-while running:
-    clock.tick(60)
-    mouse_pos = pygame.mouse.get_pos()
 
-    # --- INPUT PROCESSING ---
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
-        elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-            fire_shotgun(mouse_pos)
-        elif event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_r and not is_reloading and not game_over:
-                if ammo < ammo_max and money >= RELOAD_COST:
-                    money -= RELOAD_COST
-                    is_reloading = True
-                    reload_timer = 35
+# --- MAIN ASYNC LOOP ---
+async def main():
+    global ammo, is_reloading, reload_timer, money, game_over, spawn_timer
 
-    if not game_over:
-        # Reloading Logic
-        if is_reloading:
-            reload_timer -= 1
-            if reload_timer <= 0:
-                ammo = ammo_max
-                is_reloading = False
+    running = True
 
-        # Duck Spawning
-        spawn_timer += 1
-        if spawn_timer >= SPAWN_INTERVAL:
-            spawn_duck()
-            spawn_timer = 0
+    while running:
+        clock.tick(60)
+        mouse_pos = pygame.mouse.get_pos()
 
-        # Pellet Movement
-        for p in pellets[:]:
-            p["pos"][0] += p["vel"][0]
-            p["pos"][1] += p["vel"][1]
-            p["life"] -= 1
-            if p["life"] <= 0:
-                pellets.remove(p)
+        # --- INPUT PROCESSING ---
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                fire_shotgun(mouse_pos)
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_r and not is_reloading and not game_over:
+                    if ammo < ammo_max and money >= RELOAD_COST:
+                        money -= RELOAD_COST
+                        is_reloading = True
+                        reload_timer = 35
 
-        # Duck Movement & Collision
-        for duck in ducks[:]:
-            duck["pos"][1] += duck["speed"]
+        if not game_over:
+            # Reloading Logic
+            if is_reloading:
+                reload_timer -= 1
+                if reload_timer <= 0:
+                    ammo = ammo_max
+                    is_reloading = False
 
+            # Duck Spawning
+            spawn_timer += 1
+            if spawn_timer >= SPAWN_INTERVAL:
+                spawn_duck()
+                spawn_timer = 0
+
+            # Pellet Movement
             for p in pellets[:]:
-                dist = math.hypot(
-                    p["pos"][0] - duck["pos"][0], p["pos"][1] - duck["pos"][1]
-                )
-                if dist < duck["radius"]:
-                    money += duck["reward"]
-                    if p in pellets:
-                        pellets.remove(p)
-                    if duck in ducks:
-                        ducks.remove(duck)
-                    break
+                p["pos"][0] += p["vel"][0]
+                p["pos"][1] += p["vel"][1]
+                p["life"] -= 1
+                if p["life"] <= 0:
+                    pellets.remove(p)
 
-            # Escape penalty
-            if duck["pos"][1] > HEIGHT + 40:
-                money -= 20
-                ducks.remove(duck)
-                if money < 0:
-                    game_over = True
+            # Duck Movement & Collision
+            for duck in ducks[:]:
+                duck["pos"][1] += duck["speed"]
 
-    # --- RENDERING ---
-    # Draw River Background Image
-    if ASSETS["bg"]:
-        screen.blit(ASSETS["bg"], (0, 0))
-    else:
-        screen.fill((40, 40, 40))
+                for p in pellets[:]:
+                    dist = math.hypot(
+                        p["pos"][0] - duck["pos"][0], p["pos"][1] - duck["pos"][1]
+                    )
+                    if dist < duck["radius"]:
+                        money += duck["reward"]
+                        if p in pellets:
+                            pellets.remove(p)
+                        if duck in ducks:
+                            ducks.remove(duck)
+                        break
 
-    # Draw Ducks
-    for duck in ducks:
-        if duck["sprite"]:
-            rect = duck["sprite"].get_rect(
-                center=(int(duck["pos"][0]), int(duck["pos"][1]))
-            )
-            screen.blit(duck["sprite"], rect)
+                # Escape penalty
+                if duck["pos"][1] > HEIGHT + 40:
+                    money -= 20
+                    ducks.remove(duck)
+                    if money < 0:
+                        game_over = True
+
+        # --- RENDERING ---
+        if ASSETS["bg"]:
+            screen.blit(ASSETS["bg"], (0, 0))
         else:
+            screen.fill((40, 40, 40))
+
+        # Draw Ducks
+        for duck in ducks:
+            if duck["sprite"]:
+                rect = duck["sprite"].get_rect(
+                    center=(int(duck["pos"][0]), int(duck["pos"][1]))
+                )
+                screen.blit(duck["sprite"], rect)
+            else:
+                pygame.draw.circle(
+                    screen,
+                    GOLD_COLOR,
+                    (int(duck["pos"][0]), int(duck["pos"][1])),
+                    duck["radius"],
+                )
+
+        # Draw Shotgun Pellets
+        for p in pellets:
             pygame.draw.circle(
-                screen,
-                GOLD_COLOR,
-                (int(duck["pos"][0]), int(duck["pos"][1])),
-                duck["radius"],
+                screen, PELLET_COLOR, (int(p["pos"][0]), int(p["pos"][1])), 3
             )
 
-    # Draw Shotgun Pellets
-    for p in pellets:
-        pygame.draw.circle(
-            screen, PELLET_COLOR, (int(p["pos"][0]), int(p["pos"][1])), 3
-        )
+        # Draw Player Sprite
+        if ASSETS["player"]:
+            dx = mouse_pos[0] - player_pos[0]
+            dy = mouse_pos[1] - player_pos[1]
+            angle = math.degrees(math.atan2(-dy, dx))
+            rotated_player = pygame.transform.rotate(ASSETS["player"], angle)
+            rect = rotated_player.get_rect(center=player_pos)
+            screen.blit(rotated_player, rect)
 
-    # Draw Player Sprite
-    if ASSETS["player"]:
-        dx = mouse_pos[0] - player_pos[0]
-        dy = mouse_pos[1] - player_pos[1]
-        angle = math.degrees(math.atan2(-dy, dx))
-        rotated_player = pygame.transform.rotate(ASSETS["player"], angle)
-        rect = rotated_player.get_rect(center=player_pos)
-        screen.blit(rotated_player, rect)
+        # --- HUD OVERLAY ---
+        money_surface = font.render(f"MONEY: ${money}", True, GOLD_COLOR)
+        screen.blit(money_surface, (20, 20))
 
-    # --- HUD OVERLAY ---
-    money_surface = font.render(f"MONEY: ${money}", True, GOLD_COLOR)
-    screen.blit(money_surface, (20, 20))
+        if is_reloading:
+            ammo_txt = "RELOADING..."
+            ammo_color = ALERT_COLOR
+        elif ammo == 0:
+            ammo_txt = "OUT OF AMMO! Press [R] ($10)"
+            ammo_color = ALERT_COLOR
+        else:
+            ammo_txt = f"AMMO: {ammo}/{ammo_max} (Press [R] to Reload - ${RELOAD_COST})"
+            ammo_color = TEXT_COLOR
 
-    if is_reloading:
-        ammo_txt = "RELOADING..."
-        ammo_color = ALERT_COLOR
-    elif ammo == 0:
-        ammo_txt = "OUT OF AMMO! Press [R] ($10)"
-        ammo_color = ALERT_COLOR
-    else:
-        ammo_txt = f"AMMO: {ammo}/{ammo_max} (Press [R] to Reload - ${RELOAD_COST})"
-        ammo_color = TEXT_COLOR
+        ammo_surface = font.render(ammo_txt, True, ammo_color)
+        screen.blit(ammo_surface, (20, 50))
 
-    ammo_surface = font.render(ammo_txt, True, ammo_color)
-    screen.blit(ammo_surface, (20, 50))
+        if game_over:
+            go_surface = font.render("BANKRUPT! GAME OVER", True, ALERT_COLOR)
+            screen.blit(go_surface, (WIDTH // 2 - 120, HEIGHT // 2))
 
-    if game_over:
-        go_surface = font.render("BANKRUPT! GAME OVER", True, ALERT_COLOR)
-        screen.blit(go_surface, (WIDTH // 2 - 120, HEIGHT // 2))
+        pygame.display.flip()
 
-    pygame.display.flip()
+        # Yield execution to browser context for WebAssembly / Pygbag
+        await asyncio.sleep(0)
 
-pygame.quit()
+    pygame.quit()
+
+
+# Entry point for Pygbag
+asyncio.run(main())

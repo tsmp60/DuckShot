@@ -1,2 +1,2 @@
 # DuckShot
-Fight with ducks (Staredance project)
+Fight with ducks and earn money
